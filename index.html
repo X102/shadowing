@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadowing Practice Web</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Luyện Shadowing Đa Ngôn Ngữ</h2>
+    
+    <div class="upload-section">
+        <div class="file-input-group">
+            <label for="videoUpload">1. Chọn Video (.mp4):</label>
+            <input type="file" id="videoUpload" accept="video/mp4,video/webm">
+        </div>
+        <div class="file-input-group">
+            <label for="srtUpload">2. Chọn Phụ đề (.srt):</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="file" id="srtUpload" accept=".srt" style="max-width: 180px;">
+                <button id="btnAutoSub" class="action-btn">✨ Nhờ AI Tạo Sub</button>
+            </div>
+            <small id="autoSubStatus" style="color: #e67e22; display: none; margin-top: 5px;">
+                ⏳ Đang xử lý video...
+            </small>
+        </div>
+        <div class="file-input-group">
+            <label for="langSelect">3. Ngôn ngữ luyện tập:</label>
+            <select id="langSelect" style="padding: 5px; border-radius: 4px; max-width: 250px;"></select>
+        </div>
+        <div class="file-input-group">
+            <label for="aiProvider">4. Cấu hình AI:</label>
+            <select id="aiProvider" style="padding: 5px; border-radius: 4px;">
+                <option value="gemini">Gemini</option>
+                <option value="deepseek">DeepSeek</option>
+            </select>
+            
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <input type="text" id="aiModel" list="modelList" placeholder="Tên model (VD: gemini-2.5-flash-lite)" autocomplete="off" style="padding: 5px; width: 180px;">
+                <datalist id="modelList">
+                    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash lite</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="deepseek-chat">DeepSeek Chat (V3)</option>
+                    <option value="deepseek-reasoner">DeepSeek Reasoner (R1)</option>
+                </datalist>
+                <small class="api-help">
+                    Xem giới hạn lượt dùng: 
+                    <a href="https://ai.google.dev/pricing" target="_blank">Gemini</a> | 
+                    <a href="https://platform.deepseek.com/api-docs/pricing/" target="_blank">DeepSeek</a>
+                </small>
+            </div>
+        </div>
+        
+        <div class="file-input-group">
+            <label for="aiApiKey">5. API Key:</label>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <input type="password" id="aiApiKey" placeholder="Nhập mã API Key của bạn..." style="padding: 5px; width: 250px;">
+                <small class="api-help">
+                    Lấy key miễn phí tại: 
+                    <a href="https://aistudio.google.com/app/apikey" target="_blank">Gemini Studio</a> | 
+                    <a href="https://platform.deepseek.com/api_keys" target="_blank">DeepSeek Platform</a>
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="srt-editor-container" id="srtEditorContainer">
+        <label for="srtEditor">📝 Kiểm tra và chỉnh sửa Phụ đề (SRT) vừa tạo:</label>
+        <textarea id="srtEditor" rows="10" placeholder="Nội dung file SRT sẽ hiện ở đây..."></textarea>
+        <div class="editor-actions">
+            <button id="applySrtBtn" class="action-btn" style="background: #27ae60;">✅ Áp dụng & Bắt đầu</button>
+            <button id="downloadSrtBtn" class="action-btn" style="background: #3498db;">💾 Tải file SRT về máy</button>
+            <button id="cancelSrtBtn" class="action-btn" style="background: #e74c3c;">❌ Hủy bỏ</button>
+        </div>
+    </div>
+
+    <video id="videoPlayer" controls></video>
+
+    <div class="video-toolbar">
+        <div class="tool-group">
+            <label for="speedSelect">Tốc độ:</label>
+            <select id="speedSelect">
+                <option value="0.5">0.5x (Rất chậm)</option>
+                <option value="0.75">0.75x (Chậm)</option>
+                <option value="1" selected>1.0x (Bình thường)</option>
+                <option value="1.25">1.25x (Nhanh)</option>
+            </select>
+        </div>
+        <div class="tool-group">
+            <input type="checkbox" id="loopCheckbox">
+            <label for="loopCheckbox">Lặp lại Video (Loop)</label>
+        </div>
+    </div>
+
+    <div class="subtitle-box" id="subtitleBox">
+        Vui lòng tải lên video và phụ đề để bắt đầu...
+    </div>
+
+    <div class="controls">
+        <button id="recordBtn" disabled>🎤 Bắt đầu đọc (Shadowing)</button>
+    </div>
+
+    <div class="result-box" id="resultBox">
+        <p><strong>Bạn đang đọc:</strong> <span id="userText">...</span></p>
+        <!-- <div class="vocab-section" id="vocabSection">
+            <h3>📚 Sổ tay từ vựng</h3>
+            <ul id="vocabList"></ul>
+         </div> -->
+        <div class="score-dashboard">
+            <div class="score-card">
+                <div class="score-label">🎯 Chính xác</div>
+                <div class="score-value"><span id="accuracyScoreEl">0</span>%</div>
+            </div>
+            <div class="score-card">
+                <div class="score-label">⏱️ Tốc độ</div>
+                <div class="score-value"><span id="speedScoreEl">0</span>%</div>
+            </div>
+            <div class="score-card total-card">
+                <div class="score-label">🏆 Tổng điểm</div>
+                <div class="score-value"><span id="totalScoreEl">0</span>%</div>
+            </div>
+        </div>
+        <p id="feedbackText" class="feedback-text"></p>
+    </div>
+    <div class="vocab-section" id="vocabSection">
+        <h3>📚 Sổ tay từ vựng</h3>
+        <ul id="vocabList"></ul>
+    </div>
+    <div class="history-section" id="historySection">
+        <h3>Lịch sử luyện tập</h3>
+        <table id="historyTable">
+            <thead>
+                <tr>
+                    <th style="width: 30%">Câu gốc</th>
+                    <th style="width: 35%">Bạn đã đọc</th>
+                    <th style="width: 12%">Chính xác</th>
+                    <th style="width: 10%">Tốc độ</th>
+                    <th style="width: 13%">Tổng</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+
+</div>
+<div id="dictPopup" class="dict-popup">
+        <div class="popup-header" id="popupHeader" title="Kéo để di chuyển">
+            <span id="popupWord" class="popup-word"></span>
+            <button id="ttsBtn" title="Nghe đọc">🔊</button>
+            <button id="saveWordBtn" title="Lưu từ vựng">⭐</button>
+            <button id="closePopupBtn" title="Đóng Popup" style="color: #e74c3c; font-weight: bold;">✕</button>
+        </div>
+        
+        <div class="popup-links">
+            <a id="linkGoogleSearch" target="_blank">🔍 Google Search</a>
+            <a id="linkGoogle" target="_blank">Google Dịch</a>
+            <a id="linkImage" target="_blank">Hình ảnh</a>
+            <a id="linkYandex" target="_blank">Yandex</a>
+            <a id="linkVtuDien" target="_blank">VTuDien</a>
+            <a id="linkWiki" target="_blank">Wiktionary</a>
+        </div>
+
+        <div class="popup-ai">
+            <div class="ai-prompts">
+                <button class="ai-btn" data-prompt="Giải thích ý nghĩa và cách dùng">Giảng giải</button>
+                <button class="ai-btn" data-prompt="Cho 3 câu ví dụ thực tế">Ví dụ</button>
+                <button class="ai-btn" data-prompt="Phân tích ngữ pháp hoặc gốc từ">Ngữ pháp</button>
+            </div>
+            <div class="custom-ai-input">
+                <input type="text" id="customAiPrompt" placeholder="Hoặc tự viết câu hỏi cho AI...">
+                <button id="sendCustomAiBtn">Gửi</button>
+            </div>
+            <div id="aiResponse" class="ai-response">Kết quả AI sẽ hiện ở đây...</div>
+        </div>
+    </div>
+<script src="script.js"></script>
+</body>
+</html>
