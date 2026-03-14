@@ -474,85 +474,6 @@ function calculateAdvancedScore(targetText, userText, expectedDuration, actualDu
         feedback: feedbackMsg
     };
 }
-// ==========================================
-// --- LOGIC POPUP, KÉO THẢ & TỪ ĐIỂN ---
-// ==========================================
-// const dictPopup = document.getElementById('dictPopup');
-// const popupHeader = document.getElementById('popupHeader');
-// const popupWord = document.getElementById('popupWord');
-// let selectedWord = "";
-
-// // 1. Tính năng Kéo thả (Draggable)
-// let isDragging = false;
-// let offsetX = 0, offsetY = 0;
-
-// popupHeader.addEventListener('mousedown', (e) => {
-//     // Nếu click vào các nút (Nghe, Lưu, Đóng) thì không kích hoạt kéo
-//     if (e.target.tagName === 'BUTTON') return; 
-//     isDragging = true;
-//     offsetX = e.clientX - dictPopup.offsetLeft;
-//     offsetY = e.clientY - dictPopup.offsetTop;
-// });
-
-// document.addEventListener('mousemove', (e) => {
-//     if (!isDragging) return;
-//     dictPopup.style.left = `${e.clientX - offsetX}px`;
-//     dictPopup.style.top = `${e.clientY - offsetY}px`;
-// });
-
-// document.addEventListener('mouseup', () => { isDragging = false; });
-
-// // 2. Tính năng Bôi đen và Nút Đóng
-// document.getElementById('closePopupBtn').addEventListener('click', () => {
-//     dictPopup.style.display = 'none';
-// });
-
-// document.addEventListener('mouseup', (e) => {
-//     // Bỏ qua nếu người dùng đang click bên trong popup (tránh làm mất popup khi copy chữ)
-//     if (dictPopup.contains(e.target)) return;
-
-//     const selection = window.getSelection();
-//     const text = selection.toString().trim();
-
-//     if (text.length > 0 && text.length < 50) {
-//         selectedWord = text;
-//         popupWord.innerText = text;
-        
-//         const currentLang = langSelect.value;
-//         const baseLangCode = currentLang.split('-')[0]; 
-//         const langName = langSelect.options[langSelect.selectedIndex].text.split(' ')[0]; // Lấy chữ "Russian", "Chinese"...
-//         document.getElementById('linkGoogleSearch').href = `https://www.google.com/search?q=${encodeURIComponent(text + ' - giải thích cho người Việt từ vựng của tiếng ' + langName)}`;
-//         document.getElementById('linkGoogle').href = `https://translate.google.com/?sl=auto&tl=vi&text=${encodeURIComponent(text)}&op=translate`;
-//         document.getElementById('linkImage').href = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(text)}`;
-//         document.getElementById('linkYandex').href = `https://translate.yandex.com/?source_lang=auto&target_lang=vi&text=${encodeURIComponent(text)}`;
-//         document.getElementById('linkWiki').href = `https://${baseLangCode}.wiktionary.org/wiki/${encodeURIComponent(text)}`;
-        
-//         if (currentLang === 'ru-RU') {
-//             document.getElementById('linkVtuDien').href = `https://vtudien.com/nga-viet/dictionary/nghia-cua-tu-${encodeURIComponent(text)}`;
-//             document.getElementById('linkVtuDien').style.display = 'inline-block';
-//         } else {
-//             document.getElementById('linkVtuDien').style.display = 'none';
-//         }
-
-//         // UX MỚI: Chỉ đưa popup về vị trí chuột nếu nó ĐANG ẨN. 
-//         // Nếu đã hiện (nghĩa là user đã ghim nó ra góc), giữ nguyên vị trí!
-//         if (dictPopup.style.display === 'none' || dictPopup.style.display === '') {
-//             dictPopup.style.left = `${e.pageX}px`;
-//             dictPopup.style.top = `${e.pageY + 20}px`;
-//             dictPopup.style.display = 'block';
-//         }
-        
-//         document.getElementById('aiResponse').innerText = "Chọn một yêu cầu hoặc tự gõ câu hỏi cho AI...";
-//         document.getElementById('customAiPrompt').value = ""; // Xóa ô chat cũ
-//     }
-// });
-
-// // Nghe đọc từ vựng
-// document.getElementById('ttsBtn').addEventListener('click', () => {
-//     const utterance = new SpeechSynthesisUtterance(selectedWord);
-//     utterance.lang = langSelect.value; 
-//     speechSynthesis.speak(utterance);
-// });
 
 // ==========================================
 // --- LOGIC POPUP, KÉO THẢ & TỪ ĐIỂN (HỖ TRỢ MOBILE) ---
@@ -626,7 +547,7 @@ function handleSelection(e) {
             const baseLangCode = currentLang.split('-')[0]; 
             const langName = langSelect.options[langSelect.selectedIndex].text.split(' ')[0]; 
             
-            document.getElementById('linkGoogleSearch').href = `https://www.google.com/search?q=${encodeURIComponent(text + ' meaning ' + langName)}`;
+            document.getElementById('linkGoogleSearch').href = `https://www.google.com/search?q=${encodeURIComponent(text + '  giải thích nghĩa cho người Việt từ vựng của  ' + langName)}`;
             document.getElementById('linkGoogle').href = `https://translate.google.com/?sl=auto&tl=vi&text=${encodeURIComponent(text)}&op=translate`;
             document.getElementById('linkImage').href = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(text)}`;
             document.getElementById('linkYandex').href = `https://translate.yandex.com/?source_lang=auto&target_lang=vi&text=${encodeURIComponent(text)}`;
