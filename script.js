@@ -429,14 +429,50 @@ recordBtn.addEventListener('click', async () => {
 
     if (recognition) {
         if (isRecording) {
-            // DỪNG THU ÂM & NHẬN DIỆN
+            // --- 1. ÉP CHỐT SỔ ĐOẠN ĐANG ĐỌC DỞ TRƯỚC KHI DỪNG ---
+            const startTime = currentChunkIndex * CHUNK_TIME;
+            const endTime = video.currentTime; // Chốt đúng tại giây bạn bấm dừng
+
+            // Lấy câu gốc trong khoảng thời gian vừa chạy
+            const safeStartTime = Math.max(0, startTime - OVERLAP_TIME);
+            const targetSubs = subtitles.filter(sub => 
+                (sub.start >= safeStartTime && sub.start <= endTime) || 
+                (sub.end >= safeStartTime && sub.end <= endTime) ||
+                (sub.start <= safeStartTime && sub.end >= endTime)
+            );
+            const targetText = targetSubs.map(s => s.text).join(' ').trim();
+
+            // Lấy chữ bạn đã đọc
+            const liveTranscript = completeTranscript + currentInterim;
+            let userText = "";
+            if (liveTranscript.length >= lastEvaluatedLength) {
+                userText = liveTranscript.substring(lastEvaluatedLength).trim();
+            } else {
+                userText = currentInterim.trim();
+            }
+
+            // In kết quả ra bảng lịch sử (Chỉ in nếu có chữ gốc hoặc có chữ bạn đọc)
+            if (targetText.length > 0 || userText.length > 0) {
+                // Nếu hàm formatTimeRange báo lỗi chưa định nghĩa, hãy đảm bảo hàm đó nằm ở đầu file nhé!
+                const timeLabel = `<b style="color:#2980b9;">[${formatTimeRange(startTime)} - ${formatTimeRange(endTime)}]</b><br>`;
+                const scores = calculateAdvancedScore(targetText, userText, 1, 1); 
+                saveToHistory(timeLabel + (targetText || "(Không có phụ đề)"), userText || "(Không nghe thấy bạn đọc)", scores);
+            }
+            // -----------------------------------------------------
+
+            // --- 2. DỪNG THU ÂM & DỪNG TRÌNH DUYỆT ---
             isRecording = false;
             recognition.stop();
-            // Chỉ ép dừng mediaRecorder nếu nó đang chạy
+            
             if (mediaRecorder && mediaRecorder.state !== "inactive") {
                 mediaRecorder.stop();
             }
             video.pause(); 
+            
+            // Đổi lại giao diện nút
+            recordBtn.innerText = "🎤 Bắt đầu đọc (Shadowing)";
+            recordBtn.style.background = "#2ecc71";
+            if (feedbackText) feedbackText.innerText = "Đã dừng luyện tập!";
         } else {
             // BẮT ĐẦU
             recognition.lang = langSelect.value;
