@@ -73,6 +73,40 @@ let mediaRecorder;
 let audioChunks = [];
 let currentAudioBlobUrl = null;
 
+// --- CÁC BIẾN CHO THUẬT TOÁN BLOCK ĐÀN HỒI ---
+const chunkTimeSelect = document.getElementById('chunkTimeSelect');
+
+// Đọc giá trị từ localStorage nếu có, nếu không thì lấy mặc định là 15
+let CHUNK_TIME = parseInt(localStorage.getItem('shadowing_chunk_time')) || 15;
+if (chunkTimeSelect) {
+    chunkTimeSelect.value = CHUNK_TIME; // Cập nhật UI khớp với bộ nhớ
+}
+
+const OVERLAP_TIME = 7; // Vùng đệm bù trừ đọc chậm
+let currentChunkIndex = 0; 
+let completeTranscript = ""; 
+let currentInterim = ""; 
+let lastEvaluatedLength = 0; 
+
+let globalAudioBlob = null;
+// Lắng nghe khi người dùng thay đổi thời gian cắt Block
+if (chunkTimeSelect) {
+    chunkTimeSelect.addEventListener('change', (e) => {
+        CHUNK_TIME = parseInt(e.target.value);
+        localStorage.setItem('shadowing_chunk_time', CHUNK_TIME); // Lưu lại cho lần sau
+        
+        // Cập nhật lại ngay lập tức vị trí Block hiện tại để video không bị loạn nếu đổi giữa chừng
+        if (video) {
+            currentChunkIndex = Math.floor(video.currentTime / CHUNK_TIME);
+        }
+        
+        // Reset bảng điểm tạm
+        if (accuracyScoreEl) accuracyScoreEl.innerText = "0";
+        if (speedScoreEl) speedScoreEl.innerText = "0";
+        if (totalScoreEl) totalScoreEl.innerText = "0";
+        if (feedbackText) feedbackText.innerText = `Đã đổi sang mốc ${CHUNK_TIME} giây...`;
+    });
+}
 // Hàm khởi tạo Micro song song cho cả Nhận diện & Ghi âm
 async function initMicStream() {
     if (!audioStream) {
@@ -193,56 +227,131 @@ function timeToSeconds(timeString) {
     return (h * 3600) + (m * 60) + s + (ms / 1000);
 }
 
-// --- LOGIC ĐỒNG BỘ KARAOKE (VÁ LỖI CRASH ĐIỂM SỐ) ---
+
+
+// --- THUẬT TOÁN ĐÁNH GIÁ THEO BLOCK THỜI GIAN (15s) ---
+
+// Hàm phụ trợ đổi giây thành định dạng Phút:Giây (VD: 01:15)
+// --- THUẬT TOÁN ĐÁNH GIÁ THEO BLOCK THỜI GIAN (ĐÀN HỒI) ---
+function formatTimeRange(secs) {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = Math.floor(secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
 video.addEventListener('timeupdate', () => {
     if (subtitles.length === 0) return;
     const time = video.currentTime;
+
     const activeSub = subtitles.find(sub => time >= sub.start && time <= sub.end);
-    
-    if (activeSub && activeSub.id !== currentSubId) {
-        // Lưu lịch sử câu cũ trước khi chuyển
-        if (currentTargetText && lastUserText && lastUserText !== "...") {
-            saveToHistory(currentTargetText, lastUserText, currentScores);
+    if (activeSub) {
+        subtitleBox.innerHTML = `<span class="highlight">${activeSub.text}</span>`;
+    } else {
+        subtitleBox.innerHTML = "<em>...</em>";
+    }
+
+    if (!isRecording) return;
+
+    const newChunkIndex = Math.floor(time / CHUNK_TIME);
+
+    if (newChunkIndex > currentChunkIndex) {
+        // NGAY KHI VƯỢT QUA MỐC 15 GIÂY -> CHỐT SỔ BLOCK CŨ!
+        const startTime = currentChunkIndex * CHUNK_TIME;
+        const endTime = newChunkIndex * CHUNK_TIME;
+
+        // A. LẤY CÂU MẪU CÓ VÙNG ĐỆM: Kéo lùi mốc bắt đầu về quá khứ 7 giây
+        const safeStartTime = Math.max(0, startTime - OVERLAP_TIME);
+        const targetSubs = subtitles.filter(sub => 
+            (sub.start >= safeStartTime && sub.start < endTime) || 
+            (sub.end > safeStartTime && sub.end <= endTime) ||
+            (sub.start <= safeStartTime && sub.end >= endTime)
+        );
+        const targetText = targetSubs.map(s => s.text).join(' ').trim();
+
+        // B. LẤY CHỮ BẠN ĐỌC: Chụp ảnh toàn bộ văn bản hiện tại (Cả chốt + Nháp)
+        const liveTranscript = completeTranscript + currentInterim;
+        let userText = "";
+        
+        // Thuật toán bóc tách chuỗi an toàn chống lỗi của Chrome
+        if (liveTranscript.length >= lastEvaluatedLength) {
+            userText = liveTranscript.substring(lastEvaluatedLength).trim();
+        } else {
+            userText = currentInterim.trim(); // Fallback nếu Chrome tự xóa bớt chữ nháp
+        }
+        
+        // Kéo mốc cắt chuỗi lên hiện tại
+        lastEvaluatedLength = liveTranscript.length; 
+
+        // C. IN RA BẢNG LỊCH SỬ
+        if (targetText.length > 0 || userText.length > 0) {
+            const timeLabel = `<b style="color:#2980b9;">[${formatTimeRange(startTime)} - ${formatTimeRange(endTime)}]</b><br>`;
+            const scores = calculateAdvancedScore(targetText, userText, 1, 1); 
+            
+            saveToHistory(timeLabel + (targetText || "(Không có phụ đề)"), userText || "(Không nghe thấy bạn đọc)", scores);
         }
 
-        currentSubId = activeSub.id;
-        currentTargetText = activeSub.text;
-        currentExpectedDuration = activeSub.end - activeSub.start; 
-        subStartTimeRender = Date.now(); 
+        currentChunkIndex = newChunkIndex;
         
-        subtitleBox.innerHTML = `<span class="highlight">${activeSub.text}</span>`;
-        
-        // RESET GIAO DIỆN BẰNG CÁC ID MỚI (Tránh lỗi null)
-        if (userTextEl) userTextEl.innerText = "...";
         if (accuracyScoreEl) accuracyScoreEl.innerText = "0";
         if (speedScoreEl) speedScoreEl.innerText = "0";
         if (totalScoreEl) totalScoreEl.innerText = "0";
-        if (feedbackText) feedbackText.innerText = "Đang chờ bạn đọc...";
-        
-        lastUserText = "";
-        currentScores = { accuracy: 0, speed: 0, total: 0 };
-    } else if (!activeSub) {
-        subtitleBox.innerHTML = "<em>(Chờ câu tiếp theo...)</em>";
-        currentSubId = null; 
+        if (feedbackText) feedbackText.innerText = `Đang phân tích đoạn mới...`;
     }
 });
 
-// Sự kiện khi người dùng tua video
+// Khi tua video
 video.addEventListener('seeked', () => {
-    currentSubId = null;
-    currentTargetText = "";
-    lastUserText = ""; 
-    currentScores = { accuracy: 0, speed: 0, total: 0 };
+    currentChunkIndex = Math.floor(video.currentTime / CHUNK_TIME);
+    lastEvaluatedLength = (completeTranscript + currentInterim).length; 
+    
+    if (accuracyScoreEl) accuracyScoreEl.innerText = "0";
+    if (speedScoreEl) speedScoreEl.innerText = "0";
+    if (totalScoreEl) totalScoreEl.innerText = "0";
 });
-// --- XỬ LÝ SỰ KIỆN TUA VIDEO (SEEKING) ---
-video.addEventListener('seeked', () => {
-    // Khi người dùng kéo thanh tiến trình, ta ép hệ thống reset để tìm lại phụ đề từ đầu
-    currentSubId = null;
-    currentTargetText = "";
-    lastUserText = ""; // Không lưu rác vào lịch sử khi tua
-    lastScore = 0;
-});
+// --- XỬ LÝ KHI VIDEO KẾT THÚC (ÉP CHỐT SỔ BLOCK CUỐI) ---
+video.addEventListener('ended', () => {
+    if (!isRecording) return;
 
+    // Tính toán giới hạn của Block cuối cùng (từ mốc trước đó đến hết video)
+    const startTime = currentChunkIndex * CHUNK_TIME;
+    const endTime = video.duration;
+
+    // Lấy câu gốc
+    const safeStartTime = Math.max(0, startTime - OVERLAP_TIME);
+    const targetSubs = subtitles.filter(sub => 
+        (sub.start >= safeStartTime && sub.start <= endTime) || 
+        (sub.end >= safeStartTime && sub.end <= endTime)
+    );
+    const targetText = targetSubs.map(s => s.text).join(' ').trim();
+
+    // Lấy đoạn chữ bạn vừa đọc
+    const liveTranscript = completeTranscript + currentInterim;
+    let userText = "";
+    if (liveTranscript.length >= lastEvaluatedLength) {
+        userText = liveTranscript.substring(lastEvaluatedLength).trim();
+    } else {
+        userText = currentInterim.trim();
+    }
+
+    // In ra bảng lịch sử
+    if (targetText.length > 0 || userText.length > 0) {
+        const timeLabel = `<b style="color:#2980b9;">[${formatTimeRange(startTime)} - ${formatTimeRange(endTime)}]</b><br>`;
+        const scores = calculateAdvancedScore(targetText, userText, 1, 1); 
+        saveToHistory(timeLabel + (targetText || "(Không có phụ đề)"), userText || "(Không nghe thấy bạn đọc)", scores);
+    }
+
+    // Tự động tắt quá trình thu âm giống như khi bấm nút Dừng
+    isRecording = false;
+    recognition.stop();
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+    }
+    
+    document.getElementById('recordBtn').innerText = "🎤 Bắt đầu đọc (Shadowing)";
+    document.getElementById('recordBtn').style.background = "#2ecc71";
+    subtitleBox.innerHTML = "<em>(Đã kết thúc Video)</em>";
+    if (feedbackText) feedbackText.innerText = "Hoàn thành bài luyện tập!";
+});
 
 // --- LOGIC NHẬN DIỆN & CHẤM ĐIỂM GIỮ NGUYÊN NHƯ CŨ ---
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -260,85 +369,37 @@ if (SpeechRecognition) {
         recordBtn.innerText = "Đang nghe... (Nhấn để dừng)";
     };
 
-    // recognition.onresult = (event) => {
-    //     let finalTranscript = '', interimTranscript = '';
-    //     let isFinalResult = false;
+// KHAI BÁO BIẾN ĐỂ TRỊ LỖI LƯU LỊCH SỬ NỐI ĐUÔI CỦA TRÌNH DUYỆT
+// KHAI BÁO 2 BIẾN MỚI ĐỂ TRỊ LỖI NỐI ĐUÔI
+// KHAI BÁO 2 BIẾN "KHÓA CHỐT" ĐỂ TRỊ LỖI NỐI ĐUÔI
 
-    //     for (let i = event.resultIndex; i < event.results.length; ++i) {
-    //         if (event.results[i].isFinal) {
-    //             finalTranscript += event.results[i][0].transcript;
-    //             isFinalResult = true;
-    //         } else {
-    //             interimTranscript += event.results[i][0].transcript;
-    //         }
-    //     }
+// --- NHẬN DIỆN GIỌNG NÓI (TỐI ƯU CHO BLOCK 15S) ---
+// --- NHẬN DIỆN GIỌNG NÓI (QUÉT CẢ CHỮ NHÁP) ---
+recognition.onresult = (event) => {
+    let interim = '';
 
-    //     const currentTranscript = finalTranscript || interimTranscript;
-    //     userTextEl.innerText = currentTranscript;
-    //     lastUserText = currentTranscript;
-        
-    //     let actualDuration = 0;
-    //     if (isFinalResult && subStartTimeRender > 0) {
-    //         actualDuration = (Date.now() - subStartTimeRender) / 1000;
-    //     }
-
-    //     // Nhận về Object chứa 3 loại điểm và lời nhận xét
-    //     const scoreData = calculateAdvancedScore(currentTargetText, currentTranscript, currentExpectedDuration, actualDuration);
-        
-    //     // Cập nhật giao diện
-    //     accuracyScoreEl.innerText = scoreData.accuracy;
-    //     speedScoreEl.innerText = scoreData.speed;
-    //     totalScoreEl.innerText = scoreData.total;
-    //     feedbackText.innerText = scoreData.feedback;
-        
-    //     currentScores = scoreData; // Lưu lại để đẩy xuống lịch sử
-    //     resultBox.style.display = 'block';
-    // };
-
-    recognition.onresult = (event) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
-        let isFinalResult = false;
-
-        // Phân loại kết quả
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-                isFinalResult = true;
-            } else {
-                interimTranscript += event.results[i][0].transcript;
-            }
-        }
-
-        const currentTranscript = finalTranscript || interimTranscript;
-        
-        // 1. Chỉ cập nhật chữ hiển thị lên màn hình (Rất nhẹ, không gây lag)
-        if (userTextEl) userTextEl.innerText = currentTranscript;
-        lastUserText = currentTranscript;
-        
-        // 2. TỐI ƯU HÓA CHO MOBILE: Chặn tính điểm liên tục
-        // Chỉ gọi hàm chấm điểm nặng nề này khi AI xác nhận bạn ĐÃ ĐỌC XONG câu (isFinal)
-        if (isFinalResult) {
-            let actualDuration = 0;
-            if (subStartTimeRender > 0) {
-                actualDuration = (Date.now() - subStartTimeRender) / 1000;
-            }
-
-            const scoreData = calculateAdvancedScore(currentTargetText, currentTranscript, currentExpectedDuration, actualDuration);
-            
-            if (accuracyScoreEl) accuracyScoreEl.innerText = scoreData.accuracy;
-            if (speedScoreEl) speedScoreEl.innerText = scoreData.speed;
-            if (totalScoreEl) totalScoreEl.innerText = scoreData.total;
-            if (feedbackText) feedbackText.innerText = scoreData.feedback;
-            
-            currentScores = scoreData; 
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+            // Thêm dấu cách để các từ không bị dính chùm vào nhau khi Chrome chốt
+            completeTranscript += event.results[i][0].transcript + " "; 
         } else {
-            // Khi đang đọc dở, chỉ hiện trạng thái chờ để giảm tải cho điện thoại
-            if (feedbackText) feedbackText.innerText = "⏳ Đang phân tích giọng nói...";
+            interim += event.results[i][0].transcript;
         }
-        
-        resultBox.style.display = 'block';
-    };
+    }
+    
+    currentInterim = interim;
+
+    // Trộn cả chữ đã chốt và chữ đang nháp để hiển thị realtime
+    const liveTranscript = completeTranscript + currentInterim;
+    
+    let displayStr = "";
+    if (liveTranscript.length >= lastEvaluatedLength) {
+        displayStr = liveTranscript.substring(lastEvaluatedLength);
+    }
+
+    if (userTextEl) userTextEl.innerText = displayStr || "...";
+};
+
 
     recognition.onerror = (event) => {
         if (event.error !== 'no-speech') {
@@ -388,16 +449,15 @@ recordBtn.addEventListener('click', async () => {
                     mediaRecorder = new MediaRecorder(audioStream);
                     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
                     mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        currentAudioBlobUrl = URL.createObjectURL(audioBlob);
+                        globalAudioBlob = new Blob(audioChunks, { type: 'audio/webm' }); // LƯU RA BIẾN TOÀN CỤC ĐỂ GỬI ĐI
+                        currentAudioBlobUrl = URL.createObjectURL(globalAudioBlob);
                         
-                        // Đẩy file duy nhất này lên khu vực Audio đã tạo ở Bước 1
                         const sessionAudioContainer = document.getElementById('sessionAudioContainer');
                         const sessionAudioPlayer = document.getElementById('sessionAudioPlayer');
-                        
                         if (sessionAudioContainer && sessionAudioPlayer) {
                             sessionAudioPlayer.src = currentAudioBlobUrl;
-                            sessionAudioContainer.style.display = 'block'; // Hiện máy phát nhạc lên
+                            sessionAudioContainer.style.display = 'block';
+                            document.getElementById('aiEvaluateResult').style.display = 'none'; // Ẩn nhận xét cũ đi
                         }
                     };
                     mediaRecorder.start();
@@ -414,33 +474,6 @@ recordBtn.addEventListener('click', async () => {
     }
 });
 
-
-
-// --- CẬP NHẬT HÀM IN LỊCH SỬ ---
-// function saveToHistory(targetText, userText, scores) {
-//     const row = document.createElement('tr');
-//     let totalClass = scores.total >= 80 ? 'score-high' : (scores.total >= 50 ? 'score-medium' : 'score-low');
-    
-//     // Kiểm tra xem lúc đọc câu này, công tắc ghi âm có đang bật không
-//     const isRecEnabled = enableRecordingCheckbox.checked;
-    
-//     // Nếu có bật thì chừa chỗ trống chờ chèn Audio, nếu tắt thì báo đã tắt
-//     const audioHtml = isRecEnabled 
-//         ? `<div class="audio-container" style="font-size:12px; color:#3498db;">Đang xử lý âm thanh...</div>`
-//         : `<div class="audio-container" style="font-size:12px; color:#95a5a6; font-style:italic;">(Đã tắt ghi âm)</div>`;
-
-//     row.innerHTML = `
-//         <td>${targetText}</td>
-//         <td>
-//             <div>${userText}</div>
-//             ${audioHtml}
-//         </td>
-//         <td>${scores.accuracy}%</td>
-//         <td>${scores.speed}%</td>
-//         <td class="${totalClass}">${scores.total}%</td>
-//     `;
-//     historyTableBody.prepend(row);
-// }
 
 function saveToHistory(targetText, userText, scores) {
     const row = document.createElement('tr');
@@ -470,71 +503,73 @@ function updateLatestHistoryAudio(url) {
 
 // --- CẬP NHẬT HÀM CHẤM ĐIỂM CHI TIẾT ---
 // --- CẬP NHẬT HÀM CHẤM ĐIỂM CHI TIẾT (VÁ LỖI 100%) ---
+// --- THUẬT TOÁN CHẤM ĐIỂM BAO DUNG (BỎ QUA TẠP ÂM & ĐỘ TRỄ) ---
 function calculateAdvancedScore(targetText, userText, expectedDuration, actualDuration) {
-    // 1. Chặn ngay nếu chưa đọc gì hoặc chỉ có chuỗi chờ "..."
     if (!targetText || !userText || userText === "...") {
-        return { accuracy: 0, speed: 0, total: 0, feedback: "Hãy bắt đầu đọc..." };
+        return { accuracy: 0, speed: 0, total: 0, feedback: "Chưa nghe rõ..." };
     }
 
-    const regex = /[.,!?;:，。！？；：\s]+/g;
-    const cleanTarget = targetText.toLowerCase().replace(regex, ' ').trim();
-    const cleanUser = userText.toLowerCase().replace(regex, ' ').trim();
-
-    // 2. Nếu sau khi lọc dấu câu mà không còn chữ nào (nghĩa là mic chỉ nghe thấy tạp âm)
-    if (!cleanTarget || !cleanUser) {
-        return { accuracy: 0, speed: 0, total: 0, feedback: "Chưa nghe rõ từ nào..." };
+    // 1. Hàm tách từ thông minh: 
+    // - Với tiếng Trung/Nhật: Tách riêng từng chữ (character)
+    // - Với tiếng Anh/Nga: Giữ nguyên từng cụm từ (word)
+    function tokenize(text) {
+        // Xóa dấu câu để so sánh sạch
+        const cleanText = text.toLowerCase().replace(/[.,!?;:，。！？；：、"'()[\]\-]/g, ' ');
+        // Regex bóc tách: Lấy 1 chữ CJK (Trung/Nhật) HOẶC 1 cụm chữ cái/số (Anh/Nga)
+        const tokens = cleanText.match(/[\u4e00-\u9fa5\u3040-\u30ff\u3400-\u4dbf]|[\wа-яё]+/ig);
+        return tokens || [];
     }
 
-    const targetWords = cleanTarget.split(' ');
-    const userWords = cleanUser.split(' ');
+    const targetTokens = tokenize(targetText);
+    const userTokens = tokenize(userText);
 
-    let matches = 0;
-    let i = 0, j = 0;
-    while (i < targetWords.length && j < userWords.length) {
-        if (targetWords[i] === userWords[j]) {
-            matches++; i++; j++;
-        } else {
-            let found = false;
-            for (let k = j + 1; k < Math.min(j + 3, userWords.length); k++) {
-                if (targetWords[i] === userWords[k]) {
-                    matches++; j = k + 1; i++; found = true; break;
-                }
+    if (targetTokens.length === 0) return { accuracy: 0, speed: 0, total: 0, feedback: "" };
+    if (userTokens.length === 0) return { accuracy: 0, speed: 0, total: 0, feedback: "Chưa nghe rõ từ nào..." };
+
+    // 2. THUẬT TOÁN LCS (Longest Common Subsequence)
+    // Tìm số lượng từ khớp nhau tối đa theo đúng thứ tự, bất chấp khoảng cách
+    let m = targetTokens.length;
+    let n = userTokens.length;
+    let dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (targetTokens[i - 1] === userTokens[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1; // Nếu khớp, cộng 1 điểm
+            } else {
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]); // Nếu không khớp, lấy kết quả tốt nhất trước đó
             }
-            if (!found) i++; 
         }
     }
-    let accuracyScore = Math.min(100, Math.round((matches / Math.max(targetWords.length, 1)) * 100));
 
-    // 3. ĐIỂM TỐC ĐỘ: Khởi tạo là 0 thay vì 100
-    let speedScore = 0; 
-    let feedbackMsg = "Tuyệt vời, giữ vững phong độ nhé!";
+    const matchCount = dp[m][n]; // Tổng số từ/chữ Hán bạn đọc trúng
+    let accuracyScore = Math.min(100, Math.round((matchCount / targetTokens.length) * 100));
 
-    if (expectedDuration > 0 && actualDuration > 0) {
-        speedScore = 100; // Chỉ cấp 100 điểm khi thực sự đã có thời gian đo
+    // 3. ĐIỂM TỐC ĐỘ (Vẫn giữ logic cũ nếu bạn cần, hoặc để mặc định 100 cho Block 15s)
+    let speedScore = 100; 
+    let feedbackMsg = "Tuyệt vời, phát âm rất tốt!";
+
+    if (expectedDuration > 0 && actualDuration > 0 && expectedDuration !== 1) {
         const ratio = actualDuration / expectedDuration;
-        
         if (ratio < 0.7) {
             speedScore -= (0.7 - ratio) * 150; 
-            feedbackMsg = "⚠️ Bạn đang đọc quá nhanh, hãy ngắt nghỉ!";
+            feedbackMsg = "Bạn đang đọc hơi vội!";
         } else if (ratio > 1.3) {
             speedScore -= (ratio - 1.3) * 100; 
-            feedbackMsg = "🐢 Bạn đang đọc hơi chậm, cố gắng bắt nhịp video nhé!";
+            feedbackMsg = "Cố gắng bắt nhịp nhanh hơn nhé!";
         }
         speedScore = Math.max(0, Math.min(100, Math.round(speedScore)));
-    } else {
-        // Trạng thái đang đọc dở, mic chưa chốt kết quả (isFinal = false)
-        feedbackMsg = "⏳ Đang đo tốc độ...";
     }
 
     let totalScore = Math.round((accuracyScore * 0.7) + (speedScore * 0.3));
+
     return {
         accuracy: accuracyScore,
         speed: speedScore,
-        total: totalScore > 100 ? 100 : totalScore,
+        total: totalScore,
         feedback: feedbackMsg
     };
 }
-
 // ==========================================
 // --- LOGIC POPUP, KÉO THẢ & TỪ ĐIỂN (HỖ TRỢ MOBILE) ---
 // ==========================================
@@ -1076,5 +1111,91 @@ if (downloadSrtBtn) {
         
         // Dọn dẹp bộ nhớ của URL ảo
         URL.revokeObjectURL(fileUrl);
+    });
+}
+// ==========================================
+// --- TÍNH NĂNG GEMINI CHẤM ĐIỂM GHI ÂM ---
+// ==========================================
+const aiEvaluateBtn = document.getElementById('aiEvaluateBtn');
+const aiEvaluateResult = document.getElementById('aiEvaluateResult');
+
+if (aiEvaluateBtn) {
+    aiEvaluateBtn.addEventListener('click', async () => {
+        if (!globalAudioBlob) return alert("❌ Chưa có file ghi âm! Hãy bấm Bắt đầu đọc và ghi âm trước.");
+        
+        const apiKey = document.getElementById('aiApiKey').value.trim();
+        const provider = document.getElementById('aiProvider').value;
+        const modelName = document.getElementById('aiModel').value.trim() || 'gemini-1.5-flash';
+
+        if (!apiKey) return alert("❌ Vui lòng nhập API Key ở Bước 5 trước.");
+        if (provider !== 'gemini') {
+            return alert("❌ Tính năng nghe âm thanh hiện chỉ hỗ trợ mô hình Gemini. Hãy chuyển Nhà cung cấp AI sang Gemini nhé.");
+        }
+
+        // Khóa nút
+        aiEvaluateBtn.innerText = "⏳ AI đang dỏng tai nghe và phân tích... (Có thể mất 15-30 giây)";
+        aiEvaluateBtn.disabled = true;
+        aiEvaluateResult.style.display = "block";
+        aiEvaluateResult.innerHTML = "<em>Đang tải file âm thanh lên máy chủ Google...</em>";
+
+        try {
+            // 1. Chuyển file Âm thanh sang chuỗi Base64
+            const reader = new FileReader();
+            reader.readAsDataURL(globalAudioBlob);
+            
+            reader.onloadend = async () => {
+                const base64Audio = reader.result.split(',')[1];
+                const mimeType = globalAudioBlob.type || "audio/webm";
+
+                // 2. Gom toàn bộ phụ đề trong bài học làm đáp án cho AI
+                const allTargetText = subtitles.map(s => s.text).join(' ');
+                const langName = document.getElementById('langSelect').options[document.getElementById('langSelect').selectedIndex].text;
+
+                // 3. Prompt đóng vai giáo viên khắt khe
+                const prompt = `Bạn là một chuyên gia ngôn ngữ và giáo viên dạy phát âm ${langName} xuất sắc. 
+                Học viên của bạn vừa luyện tập phương pháp Shadowing. 
+                Dưới đây là ĐÁP ÁN (Văn bản gốc mà học viên phải đọc):
+                "${allTargetText}"
+                
+                Và đính kèm là FILE GHI ÂM giọng đọc thực tế của học viên. Hãy nghe thật kỹ và đánh giá theo format sau:
+                
+                🎯 **1. Điểm tổng quan:** (Chấm trên thang điểm 100)
+                🗣️ **2. Lỗi phát âm:** (Chỉ ra những từ học viên đọc sai, đọc vấp, hoặc bỏ sót so với văn bản gốc. Ghi rõ từ sai và cách đọc đúng).
+                🎵 **3. Ngữ điệu & Tốc độ:** (Nhận xét xem học viên đọc có tự nhiên không, có bị chậm quá hay nhanh quá không).
+                💡 **4. Lời khuyên:** (1-2 câu khuyên học viên cách cải thiện).
+                
+                Trình bày rõ ràng, dễ đọc. Không cần chào hỏi dài dòng.`;
+
+                // 4. Gọi API Gemini
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inlineData: { mimeType: mimeType, data: base64Audio } }
+                            ]
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error.message);
+
+                // 5. In kết quả ra màn hình (Biến markdown in đậm, xuống dòng thành HTML)
+                let feedbackText = data.candidates[0].content.parts[0].text;
+                feedbackText = feedbackText.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+                
+                aiEvaluateResult.innerHTML = feedbackText;
+            };
+
+        } catch (error) {
+            console.error(error);
+            aiEvaluateResult.innerHTML = `<span style="color:red;">❌ Lỗi: ${error.message}</span>`;
+        } finally {
+            aiEvaluateBtn.innerText = "🤖 Nhờ Gemini nghe và chấm điểm phát âm";
+            aiEvaluateBtn.disabled = false;
+        }
     });
 }
