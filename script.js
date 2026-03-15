@@ -192,31 +192,7 @@ function timeToSeconds(timeString) {
     
     return (h * 3600) + (m * 60) + s + (ms / 1000);
 }
-// --- LOGIC ĐỒNG BỘ KARAOKE ---
-// video.addEventListener('timeupdate', () => {
-//     if (subtitles.length === 0) return;
-//     const time = video.currentTime;
-//     const activeSub = subtitles.find(sub => time >= sub.start && time <= sub.end);
-    
-//     if (activeSub && activeSub.id !== currentSubId) {
-//         if (currentTargetText && lastUserText && lastUserText !== "...") {
-//             saveToHistory(currentTargetText, lastUserText, currentScores);
-//         }
-//         currentSubId = activeSub.id;
-//         currentTargetText = activeSub.text;
-//         currentExpectedDuration = activeSub.end - activeSub.start; 
-//         subStartTimeRender = Date.now(); 
-        
-//         subtitleBox.innerHTML = `<span class="highlight">${activeSub.text}</span>`;
-//         userTextEl.innerText = "...";
-//         scoreTextEl.innerText = "0";
-//         lastUserText = "";
-//         lastScore = 0;
-//     } else if (!activeSub) {
-//         subtitleBox.innerHTML = "<em>(Chờ câu tiếp theo...)</em>";
-//         currentSubId = null; // Đảm bảo reset trạng thái khi hết một câu
-//     }
-// });
+
 // --- LOGIC ĐỒNG BỘ KARAOKE (VÁ LỖI CRASH ĐIỂM SỐ) ---
 video.addEventListener('timeupdate', () => {
     if (subtitles.length === 0) return;
@@ -384,37 +360,54 @@ function stopRecording() {
     recordBtn.innerText = "🎤 Bắt đầu đọc (Shadowing)";
 }
 
+// Khai báo biến trỏ tới Checkbox
+const enableRecordingCheckbox = document.getElementById('enableRecordingCheckbox');
+
 recordBtn.addEventListener('click', async () => {
     if (!video.src) return alert("Vui lòng tải video và phụ đề lên trước!");
-    
-    // Yêu cầu quyền Mic nếu chưa có
-    await initMicStream();
 
     if (recognition) {
         if (isRecording) {
-            // DỪNG THU ÂM
+            // DỪNG THU ÂM & NHẬN DIỆN
             isRecording = false;
             recognition.stop();
-            if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+            // Chỉ ép dừng mediaRecorder nếu nó đang chạy
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+            }
             video.pause(); 
         } else {
-            // BẮT ĐẦU THU ÂM
+            // BẮT ĐẦU
             recognition.lang = langSelect.value;
             
-            // Khởi động MediaRecorder để ghi lại file mp3/webm
-            if (audioStream) {
-                audioChunks = [];
-                mediaRecorder = new MediaRecorder(audioStream);
-                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    currentAudioBlobUrl = URL.createObjectURL(audioBlob);
-                    // Cập nhật lại hàng lịch sử gần nhất bằng Audio URL này
-                    updateLatestHistoryAudio(currentAudioBlobUrl);
-                };
-                mediaRecorder.start();
+            // KIỂM TRA CÔNG TẮC: Chỉ bật MediaRecorder nếu người dùng Check
+            if (enableRecordingCheckbox.checked) {
+                await initMicStream(); // Yêu cầu quyền mic cho luồng ghi âm file
+                if (audioStream) {
+                    audioChunks = [];
+                    mediaRecorder = new MediaRecorder(audioStream);
+                    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        currentAudioBlobUrl = URL.createObjectURL(audioBlob);
+                        
+                        // Đẩy file duy nhất này lên khu vực Audio đã tạo ở Bước 1
+                        const sessionAudioContainer = document.getElementById('sessionAudioContainer');
+                        const sessionAudioPlayer = document.getElementById('sessionAudioPlayer');
+                        
+                        if (sessionAudioContainer && sessionAudioPlayer) {
+                            sessionAudioPlayer.src = currentAudioBlobUrl;
+                            sessionAudioContainer.style.display = 'block'; // Hiện máy phát nhạc lên
+                        }
+                    };
+                    mediaRecorder.start();
+                }
+            } else {
+                // Nếu người dùng tắt ghi âm, đảm bảo dọn dẹp biến tạm
+                currentAudioBlobUrl = null;
             }
 
+            // Bật luồng AI nhận diện chữ (luôn chạy)
             recognition.start();
             if (video.paused) video.play();
         }
@@ -422,17 +415,41 @@ recordBtn.addEventListener('click', async () => {
 });
 
 
+
 // --- CẬP NHẬT HÀM IN LỊCH SỬ ---
+// function saveToHistory(targetText, userText, scores) {
+//     const row = document.createElement('tr');
+//     let totalClass = scores.total >= 80 ? 'score-high' : (scores.total >= 50 ? 'score-medium' : 'score-low');
+    
+//     // Kiểm tra xem lúc đọc câu này, công tắc ghi âm có đang bật không
+//     const isRecEnabled = enableRecordingCheckbox.checked;
+    
+//     // Nếu có bật thì chừa chỗ trống chờ chèn Audio, nếu tắt thì báo đã tắt
+//     const audioHtml = isRecEnabled 
+//         ? `<div class="audio-container" style="font-size:12px; color:#3498db;">Đang xử lý âm thanh...</div>`
+//         : `<div class="audio-container" style="font-size:12px; color:#95a5a6; font-style:italic;">(Đã tắt ghi âm)</div>`;
+
+//     row.innerHTML = `
+//         <td>${targetText}</td>
+//         <td>
+//             <div>${userText}</div>
+//             ${audioHtml}
+//         </td>
+//         <td>${scores.accuracy}%</td>
+//         <td>${scores.speed}%</td>
+//         <td class="${totalClass}">${scores.total}%</td>
+//     `;
+//     historyTableBody.prepend(row);
+// }
+
 function saveToHistory(targetText, userText, scores) {
     const row = document.createElement('tr');
     let totalClass = scores.total >= 80 ? 'score-high' : (scores.total >= 50 ? 'score-medium' : 'score-low');
     
+    // Chỉ in ra chữ và điểm, không in thông báo âm thanh vào từng dòng nữa
     row.innerHTML = `
         <td>${targetText}</td>
-        <td>
-            <div>${userText}</div>
-            <div class="audio-container">Đang xử lý âm thanh...</div>
-        </td>
+        <td>${userText}</td>
         <td>${scores.accuracy}%</td>
         <td>${scores.speed}%</td>
         <td class="${totalClass}">${scores.total}%</td>
@@ -517,85 +534,6 @@ function calculateAdvancedScore(targetText, userText, expectedDuration, actualDu
         feedback: feedbackMsg
     };
 }
-// ==========================================
-// --- LOGIC POPUP, KÉO THẢ & TỪ ĐIỂN ---
-// ==========================================
-// const dictPopup = document.getElementById('dictPopup');
-// const popupHeader = document.getElementById('popupHeader');
-// const popupWord = document.getElementById('popupWord');
-// let selectedWord = "";
-
-// // 1. Tính năng Kéo thả (Draggable)
-// let isDragging = false;
-// let offsetX = 0, offsetY = 0;
-
-// popupHeader.addEventListener('mousedown', (e) => {
-//     // Nếu click vào các nút (Nghe, Lưu, Đóng) thì không kích hoạt kéo
-//     if (e.target.tagName === 'BUTTON') return; 
-//     isDragging = true;
-//     offsetX = e.clientX - dictPopup.offsetLeft;
-//     offsetY = e.clientY - dictPopup.offsetTop;
-// });
-
-// document.addEventListener('mousemove', (e) => {
-//     if (!isDragging) return;
-//     dictPopup.style.left = `${e.clientX - offsetX}px`;
-//     dictPopup.style.top = `${e.clientY - offsetY}px`;
-// });
-
-// document.addEventListener('mouseup', () => { isDragging = false; });
-
-// // 2. Tính năng Bôi đen và Nút Đóng
-// document.getElementById('closePopupBtn').addEventListener('click', () => {
-//     dictPopup.style.display = 'none';
-// });
-
-// document.addEventListener('mouseup', (e) => {
-//     // Bỏ qua nếu người dùng đang click bên trong popup (tránh làm mất popup khi copy chữ)
-//     if (dictPopup.contains(e.target)) return;
-
-//     const selection = window.getSelection();
-//     const text = selection.toString().trim();
-
-//     if (text.length > 0 && text.length < 50) {
-//         selectedWord = text;
-//         popupWord.innerText = text;
-        
-//         const currentLang = langSelect.value;
-//         const baseLangCode = currentLang.split('-')[0]; 
-//         const langName = langSelect.options[langSelect.selectedIndex].text.split(' ')[0]; // Lấy chữ "Russian", "Chinese"...
-//         document.getElementById('linkGoogleSearch').href = `https://www.google.com/search?q=${encodeURIComponent(text + ' - giải thích cho người Việt từ vựng của tiếng ' + langName)}`;
-//         document.getElementById('linkGoogle').href = `https://translate.google.com/?sl=auto&tl=vi&text=${encodeURIComponent(text)}&op=translate`;
-//         document.getElementById('linkImage').href = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(text)}`;
-//         document.getElementById('linkYandex').href = `https://translate.yandex.com/?source_lang=auto&target_lang=vi&text=${encodeURIComponent(text)}`;
-//         document.getElementById('linkWiki').href = `https://${baseLangCode}.wiktionary.org/wiki/${encodeURIComponent(text)}`;
-        
-//         if (currentLang === 'ru-RU') {
-//             document.getElementById('linkVtuDien').href = `https://vtudien.com/nga-viet/dictionary/nghia-cua-tu-${encodeURIComponent(text)}`;
-//             document.getElementById('linkVtuDien').style.display = 'inline-block';
-//         } else {
-//             document.getElementById('linkVtuDien').style.display = 'none';
-//         }
-
-//         // UX MỚI: Chỉ đưa popup về vị trí chuột nếu nó ĐANG ẨN. 
-//         // Nếu đã hiện (nghĩa là user đã ghim nó ra góc), giữ nguyên vị trí!
-//         if (dictPopup.style.display === 'none' || dictPopup.style.display === '') {
-//             dictPopup.style.left = `${e.pageX}px`;
-//             dictPopup.style.top = `${e.pageY + 20}px`;
-//             dictPopup.style.display = 'block';
-//         }
-        
-//         document.getElementById('aiResponse').innerText = "Chọn một yêu cầu hoặc tự gõ câu hỏi cho AI...";
-//         document.getElementById('customAiPrompt').value = ""; // Xóa ô chat cũ
-//     }
-// });
-
-// // Nghe đọc từ vựng
-// document.getElementById('ttsBtn').addEventListener('click', () => {
-//     const utterance = new SpeechSynthesisUtterance(selectedWord);
-//     utterance.lang = langSelect.value; 
-//     speechSynthesis.speak(utterance);
-// });
 
 // ==========================================
 // --- LOGIC POPUP, KÉO THẢ & TỪ ĐIỂN (HỖ TRỢ MOBILE) ---
@@ -669,7 +607,7 @@ function handleSelection(e) {
             const baseLangCode = currentLang.split('-')[0]; 
             const langName = langSelect.options[langSelect.selectedIndex].text.split(' ')[0]; 
             
-            document.getElementById('linkGoogleSearch').href = `https://www.google.com/search?q=${encodeURIComponent(text + ' giải thích nghĩa cho người Việt từ vựng của ' + langName)}`;
+            document.getElementById('linkGoogleSearch').href = `https://www.google.com/search?q=${encodeURIComponent('giải thích nghĩa cho người Việt từ vựng '+text + ' của tiếng ' + langName)}`;
             document.getElementById('linkGoogle').href = `https://translate.google.com/?sl=auto&tl=vi&text=${encodeURIComponent(text)}&op=translate`;
             document.getElementById('linkImage').href = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(text)}`;
             document.getElementById('linkYandex').href = `https://translate.yandex.com/?source_lang=auto&target_lang=vi&text=${encodeURIComponent(text)}`;

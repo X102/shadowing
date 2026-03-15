@@ -97,6 +97,14 @@
         Vui lòng tải lên video và phụ đề để bắt đầu...
     </div>
 
+    <div style="text-align: center; margin-top: 15px; margin-bottom: 5px;">
+        <input type="checkbox" id="enableRecordingCheckbox" checked>
+        <label for="enableRecordingCheckbox" style="font-weight: bold; cursor: pointer;">
+            🎙️ Bật tính năng Ghi âm & Nghe lại giọng 
+            <span style="color: #e74c3c; font-weight: normal; font-size: 13px;">(Tắt đi nếu video trên điện thoại bị lag)</span>
+        </label>
+    </div>
+
     <div class="controls">
         <button id="recordBtn" disabled>🎤 Bắt đầu đọc (Shadowing)</button>
     </div>
@@ -129,6 +137,12 @@
     </div>
     <div class="history-section" id="historySection">
         <h3>Lịch sử luyện tập</h3>
+        
+        <div id="sessionAudioContainer" style="padding: 15px; text-align: center; background: #e8f8f5; border-bottom: 1px solid #e0e0e0; display: none;">
+            <p style="margin: 0 0 10px 0; font-weight: bold; color: #2ecc71;">🎙️ Bản thu âm toàn bộ phiên đọc vừa rồi của bạn:</p>
+            <audio id="sessionAudioPlayer" controls style="width: 100%; max-width: 400px; height: 35px;"></audio>
+        </div>
+
         <table id="historyTable">
             <thead>
                 <tr>
