@@ -40,7 +40,7 @@ supportedLanguages.forEach(lang => {
     langSelect.appendChild(option);
 });
 
-const videoUpload = document.getElementById('videoUpload');
+const mediaUpload = document.getElementById('mediaUpload');
 const srtUpload = document.getElementById('srtUpload');
 const video = document.getElementById('videoPlayer');
 const subtitleBox = document.getElementById('subtitleBox');
@@ -92,11 +92,11 @@ loopCheckbox.addEventListener('change', (e) => {
     video.loop = e.target.checked;
 });
 
-// --- XỬ LÝ TẢI FILE ---
-videoUpload.addEventListener('change', (e) => {
-    if (e.target.files[0]) {
-        video.src = URL.createObjectURL(e.target.files[0]);
-        // Reset lại tốc độ mỗi khi tải video mới
+// --- XỬ LÝ TẢI FILE MEDIA (VIDEO/AUDIO) ---
+mediaUpload.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        video.src = URL.createObjectURL(file);
         video.playbackRate = parseFloat(speedSelect.value); 
         checkReadyState();
     }
@@ -887,20 +887,20 @@ const cancelSrtBtn = document.getElementById('cancelSrtBtn');
 
 if (btnAutoSub) {
     btnAutoSub.addEventListener('click', async () => {
-        const videoInput = document.getElementById('videoUpload');
-        const videoFile = videoInput.files[0];
+        const mediaInput = document.getElementById('mediaUpload');
+        const mediaFile = mediaInput.files[0];
         const apiKey = document.getElementById('aiApiKey').value.trim();
         const modelName = document.getElementById('aiModel').value.trim() || 'gemini-1.5-flash';
         const langText = langSelect.options[langSelect.selectedIndex].text.split(' ')[0];
 
-        if (!videoFile) return alert("❌ Vui lòng chọn Video ở Bước 1 trước!");
+        if (!mediaFile) return alert("❌ Vui lòng chọn Video hoặc Audio ở Bước 1 trước!");
         if (!apiKey) return alert("❌ Vui lòng nhập API Key (Gemini) ở Bước 5!");
         if (document.getElementById('aiProvider').value !== 'gemini') {
             return alert("❌ Tính năng này hiện tại chỉ hỗ trợ qua Gemini.");
         }
 
-        if (videoFile.size > 20 * 1024 * 1024) {
-            const confirmRun = confirm("⚠️ File video của bạn lớn hơn 20MB. Trình duyệt có thể bị đơ. Chắc chắn tiếp tục?");
+        if (mediaFile.size > 20 * 1024 * 1024) {
+            const confirmRun = confirm("⚠️ File của bạn lớn hơn 20MB. Trình duyệt có thể bị đơ. Chắc chắn tiếp tục?");
             if (!confirmRun) return;
         }
 
@@ -915,7 +915,7 @@ if (btnAutoSub) {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result.split(',')[1]);
                 reader.onerror = error => reject(error);
-                reader.readAsDataURL(videoFile);
+                reader.readAsDataURL(mediaFile);
             });
 
             autoSubStatus.innerText = "🧠 Đang nghe và chép chính tả (vui lòng giữ màn hình sáng)...";
@@ -949,7 +949,8 @@ if (btnAutoSub) {
                     contents: [{
                         parts: [
                             { text: prompt },
-                            { inlineData: { mimeType: videoFile.type || "video/mp4", data: base64Data } }
+                            // { inlineData: { mimeType: videoFile.type || "video/mp4", data: base64Data } }
+                            { inlineData: { mimeType: mediaFile.type || "audio/mp3", data: base64Data } }
                         ]
                     }]
                 })
