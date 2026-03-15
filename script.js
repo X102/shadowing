@@ -968,7 +968,7 @@ if (btnAutoSub) {
                 [CRITICAL MEDIA INFO]
                 The exact total length of this media file is ${totalSecs} seconds (Format HH:MM:SS -> ${h}:${m}:${s}). 
                 MATHEMATICAL BOUNDARY: It is absolutely impossible for any subtitle timestamp to exceed ${h}:${m}:${s}. 
-                WARNING: Do NOT confuse seconds for minutes. If the media is 45 seconds long, your timestamps must be 00:00:XX,XXX, NEVER 00:45:XX,XXX.
+                WARNING: Do NOT confuse seconds for minutes. If the media is 45 seconds long, your max timestamps must be 00:00:45,XXX, NOT 00:45:XX,XXX.
                 `;
             }
 
