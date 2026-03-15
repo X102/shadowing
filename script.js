@@ -678,7 +678,7 @@ if (savedModel) {
     }, 100); // Trễ 0.1s để đảm bảo chiến thắng trình duyệt
 } else {
     // Nếu chưa từng lưu, mặc định là gemini-2.5-flash-lite
-    aiModelInput.value = "gemini-2.5-flash-lite"; 
+    aiModelInput.value = "gemini-3.1-flash-lite-preview"; 
 }
 
 // 2. Lắng nghe và lưu lại bộ nhớ ngay khi người dùng thay đổi
@@ -890,7 +890,7 @@ if (btnAutoSub) {
         const mediaInput = document.getElementById('mediaUpload');
         const mediaFile = mediaInput.files[0];
         const apiKey = document.getElementById('aiApiKey').value.trim();
-        const modelName = document.getElementById('aiModel').value.trim() || 'gemini-1.5-flash';
+        const modelName = document.getElementById('aiModel').value.trim() || 'gemini-3.1-flash-lite-preview';
         const langText = langSelect.options[langSelect.selectedIndex].text.split(' ')[0];
 
         if (!mediaFile) return alert("❌ Vui lòng chọn Video hoặc Audio ở Bước 1 trước!");
@@ -920,8 +920,26 @@ if (btnAutoSub) {
 
             autoSubStatus.innerText = "🧠 Đang nghe và chép chính tả (vui lòng giữ màn hình sáng)...";
 
-// PROMPT KỶ LUẬT THÉP: Ép AI trả về đúng chuẩn SRT bằng ví dụ thực tế
+            // 1. LẤY ĐỘ DÀI CHÍNH XÁC CỦA FILE MEDIA (Tính bằng giây)
+            let durationInfo = "";
+            if (video.duration && !isNaN(video.duration)) {
+                const totalSecs = Math.floor(video.duration);
+                const h = Math.floor(totalSecs / 3600).toString().padStart(2, '0');
+                const m = Math.floor((totalSecs % 3600) / 60).toString().padStart(2, '0');
+                const s = (totalSecs % 60).toString().padStart(2, '0');
+                
+                // Tạo một khối cảnh báo đỏ bằng chữ cho AI
+                durationInfo = `
+                [CRITICAL MEDIA INFO]
+                The exact total length of this media file is ${totalSecs} seconds (Format HH:MM:SS -> ${h}:${m}:${s}). 
+                MATHEMATICAL BOUNDARY: It is absolutely impossible for any subtitle timestamp to exceed ${h}:${m}:${s}. 
+                WARNING: Do NOT confuse seconds for minutes. If the media is 45 seconds long, your timestamps must be 00:00:XX,XXX, NEVER 00:45:XX,XXX.
+                `;
+            }
+
+            // 2. NHÚNG CẢNH BÁO VÀO PROMPT KỶ LUẬT THÉP
             const prompt = `You are an expert audio-visual transcriber. Your task is to transcribe the spoken audio of this video into the ${langText} language.
+            ${durationInfo}
             
             CRITICAL INSTRUCTIONS:
             1. CROSS-REFERENCE AUDIO AND VISUALS: Listen closely to the audio. Analyze on-screen text to verify spelling in ${langText}.
@@ -929,7 +947,7 @@ if (btnAutoSub) {
             3. ABSOLUTE MANDATORY FORMAT (SRT): You MUST output the transcription in strictly valid SubRip (SRT) format. 
                - You MUST include a sequential number (1, 2, 3...).
                - You MUST include BOTH START and END timestamps using exactly this format: HH:MM:SS,mmm --> HH:MM:SS,mmm
-               - If you are unsure of the exact end time, you MUST estimate it based on the audio gap. Do NOT leave it out.
+               - If you are unsure of the exact end time, estimate it based on the audio gap. Do NOT leave it out.
                - You MUST put a blank line between each subtitle block.
                - Do NOT output markdown code blocks (like \`\`\`srt). Just output the raw text.
 
